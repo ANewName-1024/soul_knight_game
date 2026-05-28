@@ -5,12 +5,15 @@ import 'package:flutter/services.dart';
 import 'package:vector_math/vector_math.dart' hide Colors;
 import 'game/game.dart';
 import 'game/hud_overlay.dart';
+import 'game/game_screens.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   runApp(const MaterialApp(home: GamePage()));
 }
+
+enum GameState { start, playing, paused, gameOver, victory, levelTransition }
 
 class GamePage extends StatefulWidget {
   const GamePage({super.key});
@@ -21,6 +24,11 @@ class GamePage extends StatefulWidget {
 class _GamePageState extends State<GamePage> {
   late SoulKnightGame _game;
   bool _initialized = false;
+  GameState _state = GameState.start;
+  int _currentLevel = 1;
+  int _lastKillCount = 0;
+  int _lastWave = 1;
+  int _transitionLevel = 1;
 
   @override
   void initState() {
@@ -31,68 +39,118 @@ class _GamePageState extends State<GamePage> {
 
   @override
   Widget build(BuildContext context) {
+    switch (_state) {
+      case GameState.start:
+        return StartScreen(onStart: _startGame);
+      case GameState.paused:
+        return _buildGameWithOverlay(child: PauseOverlay(
+          onResume: _resumeGame,
+          onRestart: _restartGame,
+          onQuit: _quitGame,
+        ));
+      case GameState.gameOver:
+        return _buildGameWithOverlay(child: GameOverOverlay(
+          killCount: _lastKillCount, waveReached: _lastWave,
+          onRestart: _restartGame, onQuit: _quitGame,
+        ));
+      case GameState.victory:
+        return _buildGameWithOverlay(child: VictoryOverlay(
+          killCount: _lastKillCount, waveReached: _lastWave,
+          onNextLevel: _nextLevel, onQuit: _quitGame,
+        ));
+      case GameState.levelTransition:
+        return _buildGameWithOverlay(child: LevelTransition(
+          level: _transitionLevel,
+          onComplete: () => setState(() => _state = GameState.playing),
+        ));
+      case GameState.playing:
+        return _buildCurrentLayout();
+    }
+  }
+
+  Widget _buildCurrentLayout() {
     final isMobile = !Platform.isWindows && !Platform.isMacOS && !Platform.isLinux;
-
-    return Scaffold(
-      backgroundColor: const Color(0xFF1A1A2E),
-      body: isMobile ? _buildMobileLayout() : _buildPcLayout(),
-    );
-  }
-
-  Widget _buildPcLayout() {
-    return KeyboardListener(
-      focusNode: FocusNode()..requestFocus(),
-      autofocus: true,
-      onKeyEvent: (event) {
-        _game.onKeyEvent(event, HardwareKeyboard.instance.logicalKeysPressed);
-      },
-      child: GameWidget(game: _game),
-    );
-  }
-
-  Widget _buildMobileLayout() {
-    return Stack(
-      children: [
-        // 游戏画布
+    if (isMobile) {
+      return Stack(children: [
         GameWidget(game: _game),
-
-        // HUD层
         HUDOverlay(game: _game),
-
-        // 左下角固定摇杆底座
+        Positioned(top: 8, right: 8, child: _PauseButton(onTap: _pauseGame)),
         const Positioned(left: 15, bottom: 15, child: _FixedJoystickBase()),
-
-        // 右下角技能按钮
-        _SkillButtonsOverlay(game: _game),
-
-        // 触控手势层
-        Positioned.fill(
-          child: GestureDetector(
-            behavior: HitTestBehavior.translucent,
-            onPanStart: (d) => _onPanStart(d.localPosition),
-            onPanUpdate: (d) => _onPanUpdate(d.localPosition),
-            onPanEnd: (_) => _onPanEnd(),
-            onTapDown: (d) => _onTapDown(d.localPosition),
-            child: Container(color: Colors.transparent),
-          ),
-        ),
-
-        // HUD刷新定时器（每200ms强制刷新）
-        if (_initialized)
-          Positioned.fill(
-            child: Opacity(
-              opacity: 0,
-              child: _HUFTimer(game: _game),
-            ),
-          ),
-      ],
-    );
+        Positioned.fill(child: GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onPanStart: _onPanStart,
+          onPanUpdate: _onPanUpdate,
+          onPanEnd: _onPanEnd,
+          onTapDown: _onTapDown,
+          child: Container(color: Colors.transparent),
+        )),
+      ]);
+    } else {
+      return KeyboardListener(
+        focusNode: FocusNode()..requestFocus(),
+        autofocus: true,
+        onKeyEvent: (event) {
+          _game.onKeyEvent(event, HardwareKeyboard.instance.logicalKeysPressed);
+          if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.keyP) _pauseGame();
+        },
+        child: Stack(children: [
+          GameWidget(game: _game),
+          HUDOverlay(game: _game),
+          Positioned(top: 8, right: 8, child: _PauseButton(onTap: _pauseGame)),
+        ]),
+      );
+    }
   }
 
-  void _onPanStart(Offset pos) {
-    final y = pos.dy;
-    if (y > 420) return; // 底部按钮区域
+  Widget _buildGameWithOverlay({required Widget child}) {
+    final isMobile = !Platform.isWindows && !Platform.isMacOS && !Platform.isLinux;
+    if (isMobile) {
+      return Stack(children: [GameWidget(game: _game), child]);
+    } else {
+      return KeyboardListener(
+        focusNode: FocusNode()..requestFocus(),
+        autofocus: true,
+        onKeyEvent: (event) {
+          if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.keyP) {
+            if (_state == GameState.paused) _resumeGame();
+          }
+        },
+        child: Stack(children: [GameWidget(game: _game), child]),
+      );
+    }
+  }
 
+  void _startGame() {
+    _currentLevel = 1;
+    _game.reset();
+    setState(() => _state = GameState.playing);
+  }
+
+  void _pauseGame() {
+    _lastKillCount = _game.killCount;
+    _lastWave = _game.waveNumber;
+    setState(() => _state = GameState.paused);
+  }
+
+  void _resumeGame() { setState(() => _state = GameState.playing); }
+
+  void _restartGame() {
+    _currentLevel = 1;
+    _game.reset();
+    setState(() => _state = GameState.playing);
+  }
+
+  void _nextLevel() {
+    _currentLevel++;
+    _game.startNextLevel();
+    setState(() => _state = GameState.playing);
+  }
+
+  void _quitGame() { setState(() => _state = GameState.start); }
+
+  void _onPanStart(DragStartDetails d) {
+    final pos = d.localPosition;
+    if (pos.dy > 420) return;
     if (pos.dx < 288) {
       TouchInputUpdate.instance.joystickCenter = Vector2(pos.dx, pos.dy);
       TouchInputUpdate.instance.isDragging = true;
@@ -104,9 +162,20 @@ class _GamePageState extends State<GamePage> {
     }
   }
 
-  void _onPanUpdate(Offset pos) {
+  void _onPanUpdate(DragUpdateDetails d) {
     if (!TouchInputUpdate.instance.isDragging) return;
-    _calcJoystick(pos.dx, pos.dy);
+    _calcJoystick(d.localPosition.dx, d.localPosition.dy);
+  }
+
+  void _onPanEnd(DragEndDetails d) {
+    TouchInputUpdate.instance.isDragging = false;
+    TouchInputUpdate.instance.isLongPress = false;
+    TouchInput.touchDirection = Vector2.zero();
+    TouchInputUpdate.instance.update();
+  }
+
+  void _onTapDown(TapDownDetails d) {
+    if (d.localPosition.dx >= 288) _game.playerForceFire();
   }
 
   void _calcJoystick(double dx, double dy) {
@@ -114,62 +183,34 @@ class _GamePageState extends State<GamePage> {
     final ddx = dx - jc.x;
     final ddy = dy - jc.y;
     final dist = ddx * ddx + ddy * ddy;
-
-    if (dist < 100) {
-      TouchInput.touchDirection = Vector2.zero();
-      return;
-    }
-
+    if (dist < 100) { TouchInput.touchDirection = Vector2.zero(); return; }
     final len = dist > 2500 ? 50.0 : dist / 50.0;
-    final normalized = len / 50.0;
     final dir = Vector2(ddx, ddy)..normalize();
-    TouchInput.touchDirection = dir * normalized;
+    TouchInput.touchDirection = dir * (len / 50.0);
     TouchInputUpdate.instance.update();
   }
+}
 
-  void _onPanEnd() {
-    TouchInputUpdate.instance.isDragging = false;
-    TouchInputUpdate.instance.isLongPress = false;
-    TouchInput.touchDirection = Vector2.zero();
-    TouchInputUpdate.instance.update();
-  }
-
-  void _onTapDown(Offset pos) {
-    if (pos.dx >= 288) {
-      _game.playerForceFire();
-    }
+class _PauseButton extends StatelessWidget {
+  final VoidCallback onTap;
+  const _PauseButton({required this.onTap});
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 36, height: 36,
+        decoration: BoxDecoration(
+          color: Colors.black45,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: Colors.white70, width: 1.5),
+        ),
+        child: const Icon(Icons.pause, color: Colors.white70, size: 20),
+      ),
+    );
   }
 }
 
-/// 强制刷新HUD的定时器Widget
-class _HUFTimer extends StatefulWidget {
-  final SoulKnightGame game;
-  const _HUFTimer({required this.game});
-  @override
-  State<_HUFTimer> createState() => _HUFTimerState();
-}
-
-class _HUFTimerState extends State<_HUFTimer> {
-  @override
-  void initState() {
-    super.initState();
-    _startTimer();
-  }
-
-  void _startTimer() {
-    Future.delayed(const Duration(milliseconds: 200), () {
-      if (mounted) {
-        HUDFresher.instance.refresh();
-        _startTimer();
-      }
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) => const SizedBox.shrink();
-}
-
-/// 固定摇杆底座
 class _FixedJoystickBase extends StatefulWidget {
   const _FixedJoystickBase();
   @override
@@ -182,13 +223,15 @@ class _FixedJoystickBaseState extends State<_FixedJoystickBase> {
     super.initState();
     TouchInputUpdate.instance.addListener(_onUpdate);
   }
+
   @override
   void dispose() {
     TouchInputUpdate.instance.removeListener(_onUpdate);
     super.dispose();
   }
+
   void _onUpdate() { if (mounted) setState(() {}); }
-  
+
   @override
   Widget build(BuildContext context) {
     return SizedBox(
@@ -203,79 +246,17 @@ class _JoystickBasePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final cx = size.width / 2;
     final cy = size.height / 2;
-    const baseR = 55.0;
-
-    // 半透明底座
-    canvas.drawCircle(
-      Offset(cx, cy), baseR,
-      Paint()..color = Colors.white.withAlpha(20),
-    );
-    canvas.drawCircle(
-      Offset(cx, cy), baseR,
-      Paint()
-        ..color = Colors.white.withAlpha(50)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2,
-    );
-
-    // 摇杆位置
+    canvas.drawCircle(Offset(cx, cy), 55, Paint()..color = Colors.white.withAlpha(20));
+    canvas.drawCircle(Offset(cx, cy), 55, Paint()..color = Colors.white.withAlpha(50)..style = PaintingStyle.stroke..strokeWidth = 2);
     final dir = TouchInput.touchDirection;
     final isDragging = TouchInputUpdate.instance.isDragging;
     if (dir.length > 0.1 && isDragging) {
-      const knobR = 25.0;
-      const maxR = 40.0;
-      canvas.drawCircle(
-        Offset(cx + dir.x * maxR, cy + dir.y * maxR), knobR,
-        Paint()..color = Colors.white.withAlpha(140),
-      );
+      canvas.drawCircle(Offset(cx + dir.x * 40, cy + dir.y * 40), 25, Paint()..color = Colors.white.withAlpha(140));
     } else {
-      canvas.drawCircle(
-        Offset(cx, cy), 8,
-        Paint()..color = Colors.white.withAlpha(60),
-      );
+      canvas.drawCircle(Offset(cx, cy), 8, Paint()..color = Colors.white.withAlpha(60));
     }
   }
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
-}
-
-/// 技能按钮
-class _SkillButtonsOverlay extends StatelessWidget {
-  final SoulKnightGame game;
-  const _SkillButtonsOverlay({required this.game});
-
-  @override
-  Widget build(BuildContext context) {
-    // 技能按钮已整合到HUDOverlay底部
-    // 这里只显示武器切换按钮
-    return const SizedBox.shrink();
-  }
-}
-
-/// 全局触摸状态
-class TouchInput {
-  static Vector2 touchDirection = Vector2.zero();
-  static bool isFiring = false;
-  static bool isDragging = false;
-  static bool isLongPress = false;
-
-  static void reset() {
-    touchDirection = Vector2.zero();
-    isFiring = false;
-    isDragging = false;
-    isLongPress = false;
-  }
-}
-
-/// 触摸更新通知器
-class TouchInputUpdate extends ChangeNotifier {
-  static final instance = TouchInputUpdate._();
-  TouchInputUpdate._();
-
-  Vector2 joystickCenter = Vector2.zero();
-  bool isDragging = false;
-  bool isLongPress = false;
-
-  void update() { notifyListeners(); }
 }

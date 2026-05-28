@@ -60,6 +60,41 @@ class SoulKnightGame extends FlameGame<World>
     _spawnInitialEnemies();
   }
 
+  /// 重置游戏（重新开始）
+  void reset() {
+    // 移除所有敌人和子弹
+    final toRemove = children.toList();
+    for (final c in toRemove) {
+      if (c is Enemy || c is Bullet || c is MagicBullet || c is MissileBullet || c is Coin || c is WeaponPickup || c is BossEnemy || c is EnemyBullet) {
+        c.removeFromParent();
+      }
+    }
+    // 重置玩家
+    player.reset();
+    player.weapon = Pistol();
+    // 重置波次
+    _waveNumber = 1;
+    _enemiesKilledThisWave = 0;
+    killCount = 0;
+    // 重置技能
+    for (final s in skills) { s.currentCooldown = 0; }
+    _spawnInitialEnemies();
+  }
+
+  /// 下一关
+  void startNextLevel() {
+    final toRemove = children.toList();
+    for (final c in toRemove) {
+      if (c is Enemy || c is Bullet || c is MagicBullet || c is MissileBullet || c is Coin || c is WeaponPickup || c is BossEnemy || c is EnemyBullet) {
+        c.removeFromParent();
+      }
+    }
+    player.reset();
+    player.weapon = Pistol();
+    _enemiesKilledThisWave = 0;
+    _spawnInitialEnemies();
+  }
+
   void _spawnInitialEnemies() {
     for (int i = 0; i < 3; i++) {
       _spawnEnemy();
