@@ -141,7 +141,10 @@ class SoulKnightGame extends FlameGame<World>
     add(MissileBullet(position: position, direction: direction, damage: damage));
   }
 
-  void onEnemyKilled() {}
+  /// 击杀计数
+  int killCount = 0;
+  
+  void onEnemyKilled() { killCount++; }
   void onPlayerDamaged() {}
   
   void triggerSkill(int index) {
