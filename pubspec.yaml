@@ -1,0 +1,30 @@
+name: soul_knight_game
+description: "A 2D top-down roguelike dungeon crawler inspired by Soul Knight."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Game Engine
+  flame: ^1.18.0
+
+  # Utilities
+  shared_preferences: ^2.2.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/
+    - assets/audio/
