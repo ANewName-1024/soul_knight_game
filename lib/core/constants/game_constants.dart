@@ -28,4 +28,7 @@ class GameConstants {
   static const double pistolFireRate = 0.3;
   static const double pistolBulletSpeed = 400;
   static const double pistolDamage = 1;
+  // 地牢
+  static const double roomWidth = 300;
+  static const double roomHeight = 400;
 }
