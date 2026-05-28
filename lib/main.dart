@@ -23,7 +23,7 @@ class GamePage extends StatefulWidget {
 
 class _GamePageState extends State<GamePage> {
   late SoulKnightGame _game;
-  bool _initialized = false;
+  bool _gameReady = false;
   GameState _state = GameState.start;
   int _currentLevel = 1;
   int _lastKillCount = 0;
@@ -34,32 +34,41 @@ class _GamePageState extends State<GamePage> {
   void initState() {
     super.initState();
     _game = SoulKnightGame();
-    _initialized = true;
+    _game.ready().then((_) {
+      if (mounted) setState(() => _gameReady = true);
+    });
   }
 
   @override
   Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: _buildScreen(),
+    );
+  }
+
+  Widget _buildScreen() {
     switch (_state) {
       case GameState.start:
-        return StartScreen(onStart: _startGame);
+        return StartScreen(onStart: _gameReady ? _startGame : (){});
       case GameState.paused:
-        return _buildGameWithOverlay(child: PauseOverlay(
+        return _buildGameWithOverlay(PauseOverlay(
           onResume: _resumeGame,
           onRestart: _restartGame,
           onQuit: _quitGame,
         ));
       case GameState.gameOver:
-        return _buildGameWithOverlay(child: GameOverOverlay(
+        return _buildGameWithOverlay(GameOverOverlay(
           killCount: _lastKillCount, waveReached: _lastWave,
           onRestart: _restartGame, onQuit: _quitGame,
         ));
       case GameState.victory:
-        return _buildGameWithOverlay(child: VictoryOverlay(
+        return _buildGameWithOverlay(VictoryOverlay(
           killCount: _lastKillCount, waveReached: _lastWave,
           onNextLevel: _nextLevel, onQuit: _quitGame,
         ));
       case GameState.levelTransition:
-        return _buildGameWithOverlay(child: LevelTransition(
+        return _buildGameWithOverlay(LevelTransition(
           level: _transitionLevel,
           onComplete: () => setState(() => _state = GameState.playing),
         ));
@@ -102,7 +111,7 @@ class _GamePageState extends State<GamePage> {
     }
   }
 
-  Widget _buildGameWithOverlay({required Widget child}) {
+  Widget _buildGameWithOverlay(Widget child) {
     final isMobile = !Platform.isWindows && !Platform.isMacOS && !Platform.isLinux;
     if (isMobile) {
       return Stack(children: [GameWidget(game: _game), child]);
